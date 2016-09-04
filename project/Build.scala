@@ -10,7 +10,7 @@ object Build extends Build {
     aggregate = Seq(sbtElasticBeanstalkPlugin, sbtElasticBeanstalkCore),
     settings = commonSettings ++ Seq(
       libraryDependencies ++= Seq(
-        "com.amazonaws" % "aws-java-sdk" % "1.3.26"
+        "com.amazonaws" % "aws-java-sdk" % "1.11.30"
       ),
       publishArtifact := false
     )
@@ -24,7 +24,7 @@ object Build extends Build {
     publishMavenStyle := true,
     sbtPlugin := false,
     libraryDependencies ++= Seq(
-      "com.amazonaws" % "aws-java-sdk" % "1.3.26",
+      "com.amazonaws" % "aws-java-sdk" % "1.11.30",
       "org.scalatest" %% "scalatest" % "1.9.2" % "test"
     )
   )
@@ -51,14 +51,14 @@ object Build extends Build {
     Seq(
     organization := "com.joescii",
     homepage := Some(url("https://github.com/sqs/sbt-elasticbeanstalk")),
-    version := "0.0.7",
+    version := "0.0.8",
     sbtVersion in Global <<= scalaBinaryVersion {
       _ match {
         case "2.10" => "0.13.1"
         case "2.9.2" => "0.12.4"
       }
     },
-    scalaVersion in Global := "2.9.2",
+    scalaVersion in Global := "2.10.3",
     crossScalaVersions := Seq("2.9.2", "2.10.3"),
     scalacOptions ++= Seq("-unchecked", "-deprecation"),
     publishArtifact in Test := false,
