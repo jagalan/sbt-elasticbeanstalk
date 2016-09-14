@@ -89,17 +89,19 @@ trait ElasticBeanstalkCommands {
 
     // Swap and terminate the parent environment if it exists.
     parentEnv.map { parentEnv =>
-      s.log.info(logPrefix + "Swapping environment CNAMEs for app " + deployment.appName + ", " +
-        "with source " + parentEnv.getEnvironmentName + " and destination " +
-        setUpEnv.getEnvironmentName + ".")
-      ebClient.swapEnvironmentCNAMEs(
-        new SwapEnvironmentCNAMEsRequest()
-          .withSourceEnvironmentName(parentEnv.getEnvironmentName)
-          .withDestinationEnvironmentName(setUpEnv.getEnvironmentName)
-      )
-      s.log.info(logPrefix + "Swap complete.")
-      s.log.info(logPrefix + "Waiting for DNS TTL (60 seconds) plus 10 seconds until old environment '" + parentEnv.getEnvironmentName + "' is terminated...")
-      sleepForApproximately(70 * 1000)
+      if(!deployment.tier.isWorker) {
+        s.log.info(logPrefix + "Swapping environment CNAMEs for app " + deployment.appName + ", " +
+          "with source " + parentEnv.getEnvironmentName + " and destination " +
+          setUpEnv.getEnvironmentName + ".")
+        ebClient.swapEnvironmentCNAMEs(
+          new SwapEnvironmentCNAMEsRequest()
+            .withSourceEnvironmentName(parentEnv.getEnvironmentName)
+            .withDestinationEnvironmentName(setUpEnv.getEnvironmentName)
+        )
+        s.log.info(logPrefix + "Swap complete.")
+        s.log.info(logPrefix + "Waiting for DNS TTL (60 seconds) plus 10 seconds until old environment '" + parentEnv.getEnvironmentName + "' is terminated...")
+        sleepForApproximately(70 * 1000)
+      }
       s.log.info(logPrefix + "Terminating environment '" + parentEnv.getEnvironmentName + "'.")
       ebClient.terminateEnvironment(
         new TerminateEnvironmentRequest()
@@ -464,7 +466,10 @@ trait ElasticBeanstalkCommands {
                 })
             } else {
               environmentDescription.withEnvironmentName(parentEnvs.get(deployment) match {
-                case Some(p) => p.getEnvironmentName
+                case Some(p) => {
+                  s.log.warn("Found environment matching")
+                  newEnvName
+                }
                 case None => {
                   s.log.warn("Deployment environment for " + deployment.toString + " " +
                     "does not yet exist, so the environment will be created.")
