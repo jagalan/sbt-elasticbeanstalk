@@ -89,17 +89,19 @@ trait ElasticBeanstalkCommands {
 
     // Swap and terminate the parent environment if it exists.
     parentEnv.map { parentEnv =>
-      s.log.info(logPrefix + "Swapping environment CNAMEs for app " + deployment.appName + ", " +
-        "with source " + parentEnv.getEnvironmentName + " and destination " +
-        setUpEnv.getEnvironmentName + ".")
-      ebClient.swapEnvironmentCNAMEs(
-        new SwapEnvironmentCNAMEsRequest()
-          .withSourceEnvironmentName(parentEnv.getEnvironmentName)
-          .withDestinationEnvironmentName(setUpEnv.getEnvironmentName)
-      )
-      s.log.info(logPrefix + "Swap complete.")
-      s.log.info(logPrefix + "Waiting for DNS TTL (60 seconds) plus 10 seconds until old environment '" + parentEnv.getEnvironmentName + "' is terminated...")
-      sleepForApproximately(70 * 1000)
+      if(!deployment.tier.isWorker) {
+        s.log.info(logPrefix + "Swapping environment CNAMEs for app " + deployment.appName + ", " +
+          "with source " + parentEnv.getEnvironmentName + " and destination " +
+          setUpEnv.getEnvironmentName + ".")
+        ebClient.swapEnvironmentCNAMEs(
+          new SwapEnvironmentCNAMEsRequest()
+            .withSourceEnvironmentName(parentEnv.getEnvironmentName)
+            .withDestinationEnvironmentName(setUpEnv.getEnvironmentName)
+        )
+        s.log.info(logPrefix + "Swap complete.")
+        s.log.info(logPrefix + "Waiting for DNS TTL (60 seconds) plus 10 seconds until old environment '" + parentEnv.getEnvironmentName + "' is terminated...")
+        sleepForApproximately(70 * 1000)
+      }
       s.log.info(logPrefix + "Terminating environment '" + parentEnv.getEnvironmentName + "'.")
       ebClient.terminateEnvironment(
         new TerminateEnvironmentRequest()
@@ -127,25 +129,33 @@ trait ElasticBeanstalkCommands {
               "  EB app: " + deployment.appName + "\n" +
               "  EB environment name: " + targetEnv.getEnvironmentName + "\n" +
               "  CNAME: " + targetEnv.getCNAME + "\n" +
+              "  Tier: " + targetEnv.getTier.getName + "\n" +
               "  Config template: " + deployment.templateName + "\n" +
               "  Environment vars: " + deployment.environmentVariables.toString
           )
 
-          val res = throttled { ebClient.createEnvironment(
-            new CreateEnvironmentRequest()
+          val res = throttled {
+            var request = new CreateEnvironmentRequest()
               .withApplicationName(targetEnv.getApplicationName)
               .withEnvironmentName(targetEnv.getEnvironmentName)
               .withVersionLabel(appVersion.getVersionLabel)
-              .withCNAMEPrefix(targetEnv.getCNAME)
               .withTemplateName(deployment.templateName)
+              .withTier(new EnvironmentTier().withType(deployment.tier.tierType).withName(deployment.tier.name))
               .withOptionSettings(envVarSettings)
-          )}
+
+            if (!deployment.tier.isWorker) request.withCNAMEPrefix(targetEnv.getCNAME)
+            ebClient.createEnvironment(request)
+          }
           s.log.info("Elastic Beanstalk app version update complete. The new version will not be available " +
             "until the new environment is ready. When the new environment is ready, its " +
             "CNAME will be swapped with the current environment's CNAME, resulting in no downtime.\n" +
             "URL: http://" + res.getCNAME() + "\n" +
             "Status: " + res.getHealth())
-          deployment -> (new EnvironmentDescription().withEnvironmentName(res.getEnvironmentName).withCNAME(res.getCNAME))
+          if (res.getTier.getType == "Standard") {
+            deployment -> (new EnvironmentDescription().withEnvironmentName(res.getEnvironmentName).withCNAME(res.getCNAME))
+          } else {
+            deployment -> (new EnvironmentDescription().withEnvironmentName(res.getEnvironmentName))
+          }
       }.toMap
     }
   }
@@ -414,9 +424,16 @@ trait ElasticBeanstalkCommands {
   val ebParentEnvironmentsTask = (eb.ebExistingEnvironments, eb.ebClient, streams) map {
     (existingEnvs, ebClient, s) => {
       val parentEnvs = existingEnvs.flatMap { case (deployment, envs) =>
-          envs.find(_.getCNAME == deployment.cname) match {
-            case Some(parentEnv) => Some(deployment -> parentEnv)
-            case None => None
+          if (deployment.tier.isWorker) {
+              envs.find(deployment.environmentCorrespondsToThisDeployment(_)) match {
+                case Some(parentEnv) => Some(deployment -> parentEnv)
+                case None => None
+              }
+          } else {
+              envs.find(_.getCNAME == deployment.cname) match {
+                case Some(parentEnv) => Some(deployment -> parentEnv)
+                case None => None
+              }
           }
       }.toMap
       s.log.debug("eb-parent-environments: " + parentEnvs.toString)
@@ -428,23 +445,39 @@ trait ElasticBeanstalkCommands {
     (deployments, parentEnvs, envBaseNameSuffixFn, s) => {
       deployments.map { deployment =>
           deployment -> {
-            val newEnvName = envBaseNameSuffixFn(deployment.envBaseName)
-            new EnvironmentDescription()
+            val environmentDescription = new EnvironmentDescription()
               .withApplicationName(deployment.appName)
-              .withEnvironmentName(newEnvName)
               .withSolutionStackName(deployment.solutionStackName)
-              .withCNAME(parentEnvs.get(deployment) match {
-                case Some(p) => newEnvName
+              .withTier(new EnvironmentTier().withType(deployment.tier.tierType).withName(deployment.tier.name))
+            val newEnvName = envBaseNameSuffixFn(deployment.envBaseName)
+
+            if (!deployment.tier.isWorker) {
+              environmentDescription.withEnvironmentName(newEnvName)
+                .withCNAME(parentEnvs.get(deployment) match {
+                  case Some(p) => newEnvName
+                  case None => {
+                    s.log.warn("Deployment environment for " + deployment.toString + " " +
+                      "does not yet exist, so the environment will be created. There is no guarantee that " +
+                      "the requested CNAME '" + deployment.cname + "' will be available, so you MUST " +
+                      "check the CNAME that actually gets assigned and update your sbt Deployment " +
+                      "definition to use that CNAME.")
+                    deployment.cname.replace(".elasticbeanstalk.com", "")
+                  }
+                })
+            } else {
+              environmentDescription.withEnvironmentName(parentEnvs.get(deployment) match {
+                case Some(p) => {
+                  s.log.warn("Found environment matching")
+                  newEnvName
+                }
                 case None => {
                   s.log.warn("Deployment environment for " + deployment.toString + " " +
-                    "does not yet exist, so the environment will be created. There is no guarantee that " +
-                    "the requested CNAME '" + deployment.cname + "' will be available, so you MUST " +
-                    "check the CNAME that actually gets assigned and update your sbt Deployment " +
-                    "definition to use that CNAME.")
-                  deployment.cname.replace(".elasticbeanstalk.com", "")
+                    "does not yet exist, so the environment will be created.")
+                  newEnvName
                 }
-              }
-            )
+              })
+            }
+            environmentDescription
           }
       }.toMap
     }

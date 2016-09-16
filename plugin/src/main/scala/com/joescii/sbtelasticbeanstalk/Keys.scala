@@ -6,14 +6,24 @@ import com.amazonaws.services.elasticbeanstalk.model._
 import java.io.File
 import sbt.{ InputKey, SettingKey, TaskKey }
 
+case class Tier(worker: Boolean){
+  def name = if (worker) "Worker" else "WebServer"
+  def tierType = if (worker) "SQS/HTTP" else "Standard"
+
+  def isWorker: Boolean = worker
+}
+
 case class Deployment(
   appName: String,
   envBaseName: String,
   templateName: String,
-  cname: String,
+  worker: Boolean = false,
+  cname: String = "",
   environmentVariables: Map[String, String] = Map(),
   solutionStackName: String = "64bit Amazon Linux running Tomcat 7"
 ) {
+  def tier: Tier = new Tier(worker)
+
   if (cname.toLowerCase != cname) throw new Exception("Deployment CNAME should be lowercase for '" + cname + "'.")
 
   def envNamePrefix: String = envBaseName + "-"
