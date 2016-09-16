@@ -10,11 +10,11 @@ trait ElasticBeanstalkSettings {
 
   val sessionId = new java.math.BigInteger(130, new java.security.SecureRandom()).toString(32) // HACK TODO
   lazy val elasticBeanstalkSettings = Seq[Setting[_]](
-    ebEnvironmentNameSuffix := { (name) =>
+    ebEnvironmentNameSuffix := { (name : String) =>
       val maxLen = 23
       val uniq = sessionId
       if (name.length > (23 - 7)) throw new Exception("environment name too long: " + name)
-      name + "-" + System.getProperty("user.name").take(3) + uniq.take(3)
+      name + "-" + System.getProperty("user.name").replace(".", "").take(3) + uniq.take(3)
     },
     ebDeploy <<= ebDeployTask,
     ebCreateVersion <<= ebCreateVersionTask,
