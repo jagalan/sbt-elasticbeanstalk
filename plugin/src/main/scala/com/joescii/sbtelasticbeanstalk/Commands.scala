@@ -465,10 +465,11 @@ trait ElasticBeanstalkCommands {
                   }
                 })
             } else {
+              //This makes eb-deploy and eb-update-version have the same behavior
               environmentDescription.withEnvironmentName(parentEnvs.get(deployment) match {
                 case Some(p) => {
-                  s.log.warn("Found environment matching")
-                  newEnvName
+                  s.log.warn("Found a running environment, will update")
+                  p.getEnvironmentName
                 }
                 case None => {
                   s.log.warn("Deployment environment for " + deployment.toString + " " +
