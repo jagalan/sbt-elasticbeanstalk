@@ -2,9 +2,10 @@ package com.joescii.sbtelasticbeanstalk.core
 
 import com.amazonaws.auth.AWSCredentials
 //import com.amazonaws.services.s3.AmazonS3Client
-import com.amazonaws.services.s3.model._
+import com.amazonaws.services.s3.model.PutObjectRequest
 import com.amazonaws.services.elasticbeanstalk.model._
 import com.amazonaws.services.s3.transfer._
+import com.amazonaws.event.{ProgressEvent,ProgressListener}
 import java.io.File
 import java.util.Date
 import java.text.SimpleDateFormat
@@ -52,7 +53,9 @@ class SourceBundleUploader(
       s3BucketName,
       key,
       bundleFile
-    ).withProgressListener(progressListener)
+    )
+
+    req.setGeneralProgressListener(progressListener)
 
     upload = tx.upload(req)
     upload.waitForUploadResult()
